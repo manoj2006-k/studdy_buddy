@@ -1,20 +1,32 @@
 import streamlit as st
-from transformers import pipeline
 from PyPDF2 import PdfReader
 
 # App Configuration
 st.set_page_config(page_title="Local AI Study Buddy", page_icon="🎓")
 
+try:
+    from transformers import pipeline
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    pipeline = None
+    TRANSFORMERS_AVAILABLE = False
+
 # --- Load Instruction-Tuned Model ---
 @st.cache_resource
 def load_ai():
-    # We use 'text-generation' because your system confirmed it is available.
-    # MBZUAI/LaMini-GPT-124M is an instruction-following model.
-    pipe = pipeline("text-generation", model="MBZUAI/LaMini-GPT-124M")
-    return pipe
+    if not TRANSFORMERS_AVAILABLE:
+        return None
+
+    try:
+        return pipeline("text-generation", model="MBZUAI/LaMini-GPT-124M")
+    except Exception:
+        return None
 
 with st.spinner("Loading Local AI (LaMini-GPT)..."):
     ai_engine = load_ai()
+
+if ai_engine is None:
+    st.info("The AI model is unavailable right now, so the app will use a lightweight fallback response.")
 
 # --- Helper Functions ---
 def extract_text(file):
@@ -27,13 +39,43 @@ def extract_text(file):
         return text
     return file.read().decode("utf-8")
 
+def generate_fallback_response(instruction, context=""):
+    instruction_lower = instruction.lower()
+    text = (context or "").strip()
+
+    if "summarize" in instruction_lower:
+        if not text:
+            return "Please upload a document with content to summarize."
+        sentences = [sentence.strip() for sentence in text.replace("\n", " ").split(".") if sentence.strip()]
+        return " ".join(sentences[:3])[:700]
+
+    if "explain" in instruction_lower:
+        concept = instruction.replace("Explain the concept of", "", 1).replace("in simple terms", "", 1).strip()
+        if concept:
+            return f"{concept} is easier to understand when you break it into smaller parts and connect it to familiar examples."
+        return "A concept becomes clearer when you explain it using simple, everyday language."
+
+    if "question" in instruction_lower:
+        if text:
+            return "What is the main idea of the provided material?"
+        return "Create a study question from the provided topic."
+
+    return "The AI model is unavailable right now, so this fallback response is being shown instead."
+
+
 def ask_ai(instruction, context=""):
+    if ai_engine is None:
+        return generate_fallback_response(instruction, context)
+
     # Formatting prompt specifically for LaMini (Instruction-tuned)
     prompt = f"Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\n{instruction} using this text: {context}\n\n### Response:"
-    
-    # max_new_tokens controls how long the answer is
-    res = ai_engine(prompt, max_new_tokens=100, do_sample=True, temperature=0.7, return_full_text=False)
-    return res[0]['generated_text'].strip()
+
+    try:
+        # max_new_tokens controls how long the answer is
+        res = ai_engine(prompt, max_new_tokens=100, do_sample=True, temperature=0.7, return_full_text=False)
+        return res[0]['generated_text'].strip()
+    except Exception:
+        return generate_fallback_response(instruction, context)
 
 # --- UI Layout ---
 st.title("🎓 AI Study Buddy (Offline)")
@@ -41,7 +83,7 @@ st.info("Task: text-generation | Model: LaMini-GPT-124M")
 
 tab1, tab2, tab3 = st.tabs(["📝 Summarizer", "💡 Explainer", "❓ Quiz"])
 
-# --- TAB 1: SUMMARIZER ---
+# --- TAB 1: SUMMARIZER ---w
 with tab1:
     st.header("Summarize Notes")
     doc = st.file_uploader("Upload PDF or TXT", type=["pdf", "txt"])
