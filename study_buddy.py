@@ -1,5 +1,12 @@
 import streamlit as st
-from PyPDF2 import PdfReader
+
+try:
+    from pypdf import PdfReader
+except ImportError:
+    try:
+        from PyPDF2 import PdfReader
+    except ImportError:
+        PdfReader = None
 
 # App Configuration
 st.set_page_config(page_title="Local AI Study Buddy", page_icon="🎓")
@@ -31,13 +38,16 @@ if ai_engine is None:
 # --- Helper Functions ---
 def extract_text(file):
     if file.type == "application/pdf":
+        if PdfReader is None:
+            return "PDF text extraction is unavailable because the PDF dependency is not installed."
         reader = PdfReader(file)
         text = ""
         for page in reader.pages:
             content = page.extract_text()
-            if content: text += content
+            if content:
+                text += content
         return text
-    return file.read().decode("utf-8")
+    return file.read().decode("utf-8", errors="ignore")
 
 def generate_fallback_response(instruction, context=""):
     instruction_lower = instruction.lower()
